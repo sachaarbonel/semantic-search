@@ -1,6 +1,6 @@
 use std::fs;
 
-use kd_tree::{KdPoint, KdSlice2};
+use kd_tree::KdPoint;
 use rust_bert::pipelines::sentence_embeddings::{
     SentenceEmbeddingsBuilder, SentenceEmbeddingsModelType,
 };
