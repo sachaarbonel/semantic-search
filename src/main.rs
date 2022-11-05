@@ -1,11 +1,10 @@
 use std::fs;
 
-use kd_tree::{KdPoint};
+use kd_tree::{KdPoint, KdSlice2};
 use rust_bert::pipelines::sentence_embeddings::{
     SentenceEmbeddingsBuilder, SentenceEmbeddingsModelType,
 };
-use serde::{Deserialize};
-
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Library {
@@ -24,22 +23,33 @@ pub struct Book {
 impl Book {
     fn to_embedded(self, embeddings: [f32; 384]) -> EmbeddedBook {
         EmbeddedBook {
-            title: self.title,
-            author: self.author,
-            summary: self.summary,
+            title: Some(self.title),
+            author: Some(self.author),
+            summary: Some(self.summary),
             embeddings: embeddings,
         }
     }
 }
 #[derive(Debug)]
 pub struct EmbeddedBook {
-    pub title: String,
+    pub title: Option<String>,
 
-    pub author: String,
+    pub author: Option<String>,
 
-    pub summary: String,
+    pub summary: Option<String>,
 
     pub embeddings: [f32; 384],
+}
+
+impl EmbeddedBook {
+    fn topic(embeddings: [f32; 384]) -> Self {
+        Self {
+            title: None,
+            author: None,
+            summary: None,
+            embeddings: embeddings,
+        }
+    }
 }
 
 impl KdPoint for EmbeddedBook {
@@ -55,28 +65,27 @@ fn main() -> anyhow::Result<()> {
     let model = SentenceEmbeddingsBuilder::remote(SentenceEmbeddingsModelType::AllMiniLmL12V2)
         .create_model()?;
 
-    let config = fs::read_to_string("data/books.json")?;
-    let library: Library = serde_json::from_str(&config)?;
+    let json = fs::read_to_string("data/books.json")?;
+    let library: Library = serde_json::from_str(&json)?;
     let mut embeddedbooks = Vec::new();
     for book in library.books.clone() {
         let embeddings = model.encode(&[book.clone().summary])?;
 
-        embeddedbooks.push(book.to_embedded(pop(embeddings[0].as_slice())));
+        embeddedbooks.push(book.to_embedded(to_array(embeddings[0].as_slice())));
     }
+    let query = "rich";
+    println!("Querying: {}", query);
+    let rich_embeddings = model.encode(&[query])?;
+    let rich_embedding = to_array(rich_embeddings[0].as_slice());
+    let rich_topic = EmbeddedBook::topic(rich_embedding);
 
-    let first_book = &library.books[0];
-    let embeddings = model.encode(&["young millionaire"])?;
-    let point = first_book
-        .clone()
-        .to_embedded(pop(embeddings[0].as_slice()));
-        
     let kdtree = kd_tree::KdSlice::sort_by(&mut embeddedbooks, |item1, item2, k| {
         item1.embeddings[k]
             .partial_cmp(&item2.embeddings[k])
             .unwrap()
     });
 
-    let nearests = kdtree.nearests(&point, 10);
+    let nearests = kdtree.nearests(&rich_topic, 10);
     for nearest in nearests {
         println!("nearest: {:?}", nearest.item.title);
         println!("distance: {:?}", nearest.squared_distance);
@@ -85,6 +94,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn pop(barry: &[f32]) -> [f32; 384] {
+// convenient to convert a slice to a fixed size array
+fn to_array(barry: &[f32]) -> [f32; 384] {
     barry.try_into().expect("slice with incorrect length")
 }
